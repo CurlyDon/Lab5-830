@@ -148,23 +148,59 @@ class AgvFsm:
 #%% Code Block 1-13
 # SchedulingFsm - state machine to select the next package based on scheduling
 class SchedulingFsm:
-    
+
     #retrieves the package queue
     def add_request(self,data):
-        self.deliveryList = data
-        
+        # ROS may provide a list of deliveries or a single delivery request
+        if isinstance(data, list):
+            self.deliveryList = data
+        else:
+            self.deliveryList.append(data)
+
+    # update the scheduling algorithm
+    def update_algorithm(self, data):
+        # Accept either a string or ROS std_msgs/String like object
+        if isinstance(data, str):
+            self.algorithm = data
+        else:
+            self.algorithm = str(data)
+
+    # select the next delivery based on the current algorithm
+    def select_next_delivery(self):
+        if len(self.deliveryList) == 0:
+            return None
+
+        # EDF: choose the package with the earliest deadline value
+        if self.algorithm.lower() == "edf":
+            def deadline_value(delivery):
+                if isinstance(delivery, dict):
+                    return delivery.get("deadline", float("inf"))
+                return getattr(delivery, "deadline", float("inf"))
+
+            selected = min(self.deliveryList, key=deadline_value)
+        else:
+            # FCFS: choose the first request in the queue
+            selected = self.deliveryList[0]
+
+        # remove the selected delivery from the queue and return it
+        self.deliveryList.remove(selected)
+        return selected
+
     # class initialization
     def __init__(self):
         self.currentState = "idle" #state of the SS
-        self.deliveryList = [] #deliveries 
+        self.deliveryList = [] #deliveries
         self.delivered = False #used to determine if the delivery is done, and it should move back to the idle state
+        self.currentDelivery = None #package currently scheduled
+        self.algorithm = "fcfs" #default algorithm
         self.requestsub = rospy.Subscriber("/request", nav_msgs.Delivery, self.add_request)
+        self.algosub = rospy.Subscriber("/algorithm", std_msgs.String, self.update_algorithm)
 
     # update - updates the current state and outputs
 # update SS state machine
     def update(self):
         if self.currentState == "idle":
-            #TODO: set the DS state machine's current package to be executed to None/0
+            self.currentDelivery = None
             # next state logic
             if len(self.deliveryList) > 0:
                 self.currentState = "serving"
@@ -174,13 +210,16 @@ class SchedulingFsm:
                 self.currentState = "idle"
             # determine which package to schedule
             else:
-                deliveryToExecute = self.deliveryList[0] #the package to deliver
-                #TODO: pass the delivery to execute to the DS state machine.
+                deliveryToExecute = self.select_next_delivery() #the package to deliver
+                self.currentDelivery = deliveryToExecute
                 self.currentState = "wait"
         elif self.currentState == "wait":
             # wait for delivery to complete
             if self.delivered:
-                self.currentState = "idle"
+                if len(self.deliveryList) > 0:
+                    self.currentState = "serving"
+                else:
+                    self.currentState = "idle"
                 self.delivered = False
                 
  
@@ -197,3 +236,4 @@ AgvFsmInst.agvanglesub.unregister()
 AgvFsmInst.displacementsub.unregister()
 AgvFsmInst.timesub.unregister()
 SchedulingFsmInst.requestsub.unregister()
+SchedulingFsmInst.algosub.unregister()
