@@ -3,10 +3,26 @@ from ros_shim import rospy
 from ros_shim import std_msgs, nav_msgs
 import time
 import math
-                    
+
 # ROS initialization
 nodeName = "Lab 5 Node"
 rospy.init_node(nodeName)
+
+#%% Code Block 1-7
+# constants given in lab background
+ANG_VEL = math.pi / 16
+LIN_VEL = 30
+EPSILON1 = 7
+EPSILON2 = 10
+
+# global variable for timekeeping
+t = 0
+
+
+# function to keep track of time
+def update_t(data):
+    global t
+    t += 0.1
 
 
 
@@ -27,12 +43,13 @@ class AgvFsm:
     def __init__(self):
         self.currentState = "stop" #current state based on the state machine
         self.active = True #controls the vehicle to stop and go
-        self.theta = 0 
+        self.theta = 0
         self.displacement = 0
         self.clockwise = True #if the vehicle is moving in the clockwise or counterclockwise direction on the track
-        self.turn = False #instruct if the vehicle to turn around 
+        self.turn = False #instruct if the vehicle to turn around
         self.agvanglesub = rospy.Subscriber("/1/AGVanglePosition", std_msgs.Float64, self.update_angle_position)
         self.displacementsub = rospy.Subscriber("/1/displacement", std_msgs.Float64, self.update_displacement)
+        self.timesub = rospy.Subscriber("/time", std_msgs.Float64, update_t)
 
         self.xVel = rospy.Publisher("/1/AGVxVelocity", std_msgs.Float64)
         self.yVel = rospy.Publisher("/1/AGVyVelocity", std_msgs.Float64)
@@ -40,25 +57,9 @@ class AgvFsm:
         
     #updates the main state machine
     def update(self):
-        #%% Code Block 1-7
-        #constants given in lab background
-        ANG_VEL = math.pi/16
-        LIN_VEL = 30
-        EPSILON1 = 7
-        EPSILON2 = 10
-        
-        # global variable for timekeeping
         global t
-        t = 0
-        
-        # function to keep track of time
-        def update_t(data):
-            global t
-            t += 0.1
-        
-        rospy.Subscriber("/time", std_msgs.Float64, update_t)
         print("Current AGV State: ", self.currentState)
-        
+
         if self.turn == True:
             self.currentState = "turn"
             self.turn = False #turn off so it doesn't keep resetting the angle/re-entering the state
@@ -107,12 +108,14 @@ class AgvFsm:
         # left
         elif self.currentState == "left":
             # publish movements
-#%% Code Block 1-12
+            self.xVel.publish(LIN_VEL/(1+math.exp(-t+5))*math.cos(self.theta))
+            self.yVel.publish(-LIN_VEL/(1+math.exp(-t+5))*math.sin(self.theta))
+            #%% Code Block 1-12
             if self.clockwise:
                 self.angVel.publish(ANG_VEL) #normally
             else:
                 self.angVel.publish(-ANG_VEL) #counterclockwise
-                
+
             # state transitions
             if self.active == False:
                 self.currentState = "stop"
@@ -124,7 +127,9 @@ class AgvFsm:
         # right
         elif self.currentState == "right":
             # publish movements
-#%% Code Block 1-12
+            self.xVel.publish(LIN_VEL/(1+math.exp(-t+5))*math.cos(self.theta))
+            self.yVel.publish(-LIN_VEL/(1+math.exp(-t+5))*math.sin(self.theta))
+            #%% Code Block 1-12
             if self.clockwise:
                 self.angVel.publish(-ANG_VEL) #normally
             else:
@@ -187,7 +192,8 @@ for x in range(0, 100): #place your previous while loop at the end of your code 
     AgvFsmInst.update()
     time.sleep(0.1)
     SchedulingFsmInst.update()
-    
+
 AgvFsmInst.agvanglesub.unregister()
 AgvFsmInst.displacementsub.unregister()
+AgvFsmInst.timesub.unregister()
 SchedulingFsmInst.requestsub.unregister()
